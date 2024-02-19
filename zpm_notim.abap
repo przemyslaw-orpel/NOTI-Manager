@@ -2,14 +2,14 @@
 *& Report  ZPM_NOTIM
 *&
 *&---------------------------------------------------------------------*
-*& Noficiation managment GUI
+*& Notification managment GUI
 *& Author: Przemyslaw Orpel
 *&---------------------------------------------------------------------*
 report zpm_notim.
 
 data: s100_ok   type syst_ucomm. "screen 100 element
 
-class lc_gui_screen definition.
+class lc_gui_screen definition final.
   public section.
     class-data:
     screen type ref to lc_gui_screen. "Singleton
@@ -28,26 +28,41 @@ class lc_gui_screen definition.
       select_equi_data,
       add_equi_nodes,
       set_tree_col_settings,
-      hide_column_tree.
+      hide_column_tree,
+      set_tree_handler,
+      set_tree_toolbar,
+      create_alv_noti,
+      create_alv_release,
+      create_alv_open,
+      create_alv_closed,
+      set_alv_toolbar,
+      set_alv_header,
+      set_alv_hotspot importing ip_alv type ref to cl_salv_table,
+      set_alv_handler,
+      select_noti importing ip_ls_tree type zpm_tree ip_noti_status type string exporting ep_lt_noti type zpm_noti_tab,
+      display_alv_noti,
+      refresh_alv_noti,
+      on_link_click importing ip_column type salv_de_column ip_row type salv_de_row ip_table type zpm_noti_tab,
+      on_tree_click for event double_click of cl_salv_events_tree importing node_key,
+      on_link_open for event link_click of cl_salv_events_table importing column row,
+      on_link_relase for event link_click of cl_salv_events_table importing column row,
+      on_link_closed for event link_click of cl_salv_events_table importing column row.
 
-    types: begin of ty_tplnr_key,
-             tplma    type tplma,
-             node_key type i,
-           end of ty_tplnr_key,
-           begin of ty_equi_key,
-             equnr    type equnr,
-             node_key type i,
-           end of ty_equi_key,
-           begin of ty_tree,
-             node_key    type i,  "tplnr key
-             node_parent type i,  "tplma key
-             tplnr       type tplnr,
-             tplma       type tplma,
-             pltxt       type pltxt,
-             equnr       type equnr,
-             hequi       type hequi,
-             eqktx       type ktx01,
-           end of ty_tree.
+    constants: gc_noti_open    type string value 'I0068',
+               gc_noti_release type string value 'I0070',
+               gc_noti_closed  type string value 'I0072',
+               gc_qmnum        type lvc_fname value 'QMNUM',
+               gc_aufnr        type lvc_fname value 'AUFNR',
+               gc_error        type c length 1 value 'E'.
+
+    types:    begin of ty_tplnr_key,
+                tplma    type tplma,
+                node_key type i,
+              end of ty_tplnr_key,
+              begin of ty_equi_key,
+                equnr    type equnr,
+                node_key type i,
+              end of ty_equi_key.
 
     data:
       gr_tree_cont     type ref to cl_gui_container,
@@ -57,16 +72,21 @@ class lc_gui_screen definition.
       gr_noti_splitter type ref to cl_gui_splitter_container,
       gr_splitter      type ref to cl_gui_splitter_container,
       gr_alv_tree      type ref to cl_salv_tree,
-      gt_tree_init     type table of ty_tree,
-      gt_tree_tplnr    type table of ty_tree,
-      gt_tree_equi     type table of ty_tree,
+      gr_alv_release   type ref to cl_salv_table,
+      gr_alv_open      type ref to cl_salv_table,
+      gr_alv_closed    type ref to cl_salv_table,
+      gt_tree_init     type zpm_tree_tab,
+      gt_tree_tplnr    type zpm_tree_tab,
+      gt_tree_equi     type zpm_tree_tab,
       gt_tplnr_key     type table of  ty_tplnr_key,
       gt_equi_key      type table of  ty_equi_key,
+      gt_noti_release  type zpm_noti_tab,
+      gt_noti_open     type zpm_noti_tab,
+      gt_noti_closed   type zpm_noti_tab,
       gv_hier_icon     type salv_de_tree_image,
       gv_expand_icon   type salv_de_tree_image,
       gv_equi_icon     type salv_de_tree_image,
       gv_collapse_icon type salv_de_tree_image.
-
 endclass.
 
 class lc_gui_screen implementation.
@@ -74,6 +94,7 @@ class lc_gui_screen implementation.
     me->create_splitter( ).
     me->set_icon( ).
     me->create_tree( ).
+    me->create_alv_noti( ).
   endmethod.
   method create_screen.
     if screen is initial.
@@ -86,7 +107,7 @@ class lc_gui_screen implementation.
                          rows = 1
                          columns = 2 ).
     " Set first column width
-    gr_splitter->set_column_width( id = 1 width = 20 ).
+    gr_splitter->set_column_width( id = 1 width = 30 ).
 
     " Create vertical splitter instance
     gr_noti_splitter = new #( parent =   gr_splitter->get_container( row = 1 column = 2 )
@@ -105,7 +126,6 @@ class lc_gui_screen implementation.
     gv_equi_icon = icon_equipment .
 
   endmethod.
-
   method create_tree.
     me->init_tree( ).
     me->select_tplnr_data( ).
@@ -114,9 +134,10 @@ class lc_gui_screen implementation.
     me->add_equi_nodes( ).
     me->set_tree_col_settings( ).
     me->hide_column_tree( ).
+    me->set_tree_handler( ).
+    me->set_tree_toolbar( ).
     gr_alv_tree->display( ).
   endmethod.
-
   method select_tplnr_data.
     data: lt_iflot    type table of iflot,
           lv_node_key type i,
@@ -151,7 +172,7 @@ class lc_gui_screen implementation.
       endif.
 
       " Add row to tree table
-      append value ty_tree(
+      append value zpm_tree(
           node_key    =  lv_parent
           node_parent = lv_node_key
           tplnr       = lv_iflot-tplnr ) to gt_tree_tplnr .
@@ -178,11 +199,10 @@ class lc_gui_screen implementation.
            changing
             t_table = gt_tree_init ). " must be empty
       catch cx_salv_error into data(lx_alv_error).
-        message lx_alv_error->get_text( ) type 'E'.
+        message lx_alv_error->get_text( ) type gc_error.
     endtry.
   endmethod.
   method create_nodes.
-    data: lv_text type lvc_value.
     " Get nodes from alv tree
     data(lr_nodes) = gr_alv_tree->get_nodes( ).
 
@@ -211,7 +231,7 @@ class lc_gui_screen implementation.
           endif.
         endloop.
       catch cx_salv_msg into data(lx_alv_error).
-        message lx_alv_error->get_text( ) type 'E'.
+        message lx_alv_error->get_text( ) type gc_error.
     endtry.
   endmethod.
   method select_equi_data.
@@ -226,6 +246,7 @@ class lc_gui_screen implementation.
       join iflotx on iloa~tplnr = iflotx~tplnr
       into corresponding fields of table @gt_tree_equi
       where equz~datbi gt @sy-datum.
+    "and iflot~tplnr like ''  - limit equipments for the tplnr
 
     " Read last key index
     data(lv_key_index) = lines( gt_tplnr_key ) .
@@ -309,18 +330,18 @@ class lc_gui_screen implementation.
               text           = lv_text ).
         endloop.
       catch cx_salv_msg into data(lx_alv_error).
-        message lx_alv_error->get_text( ) type 'E'.
+        message lx_alv_error->get_text( ) type gc_error.
     endtry.
   endmethod.
   method set_tree_col_settings.
     data(lr_setting) = gr_alv_tree->get_tree_settings( ).
-    lr_setting->set_hierarchy_header( 'TPLNR TREE' ).
+    lr_setting->set_hierarchy_header( text-004 ). " Fun. location / Equipment
     lr_setting->set_hierarchy_size( 50 ).
     lr_setting->set_hierarchy_icon( gv_hier_icon ).
   endmethod.
   method hide_column_tree.
     data: lt_hide_col type table of lvc_fname.
-    lt_hide_col = value #( ( 'NODE_KEY' ) ( 'NODE_PARENT' ) ( 'TPLNR' ) ( 'TPLMA' )
+    lt_hide_col = value #( ( 'MANDT' ) ( 'NODE_KEY' ) ( 'NODE_PARENT' ) ( 'TPLNR' ) ( 'TPLMA' )
      ( 'EQUNR' ) ( 'PLTXT' ) ( 'HEQUI' ) ).
 
     try.
@@ -329,8 +350,182 @@ class lc_gui_screen implementation.
           lo_tree_col->get_column( ls_col )->set_visible( abap_false ).
         endloop.
       catch cx_salv_not_found into data(lx_alv_error).
-        message lx_alv_error->get_text( ) type 'E'.
+        message lx_alv_error->get_text( ) type  gc_error.
     endtry.
+  endmethod.
+  method  set_tree_handler.
+    "Set tree handler
+    data(lo_event) = gr_alv_tree->get_event( ).
+    set handler me->on_tree_click for lo_event.
+  endmethod.
+  method set_tree_toolbar.
+    me->gr_alv_tree->get_functions( )->set_all( ).
+  endmethod.
+  method create_alv_noti.
+    me->create_alv_release( ).
+    me->create_alv_open( ).
+    me->create_alv_closed( ).
+    me->set_alv_toolbar( ).
+    me->set_alv_header( ).
+    me->set_alv_hotspot( gr_alv_open ).
+    me->set_alv_hotspot( gr_alv_release ).
+    me->set_alv_hotspot( gr_alv_closed ).
+    me->set_alv_handler( ).
+
+    me->display_alv_noti( ).
+  endmethod.
+  method create_alv_release.
+    "Create ALV Table instance
+    try.
+        cl_salv_table=>factory(
+          exporting
+            r_container = gr_center_cont
+          importing
+            r_salv_table = gr_alv_release
+          changing
+            t_table = gt_noti_release
+        ).
+      catch cx_salv_msg into data(lx_error).
+        message lx_error->get_text( ) type  gc_error.
+    endtry.
+  endmethod.
+  method create_alv_open.
+    "Create ALV Table instance
+    try.
+        cl_salv_table=>factory(
+          exporting
+            r_container = gr_top_cont
+          importing
+            r_salv_table = gr_alv_open
+          changing
+            t_table = gt_noti_open
+        ).
+      catch cx_salv_msg into data(lx_error).
+        message lx_error->get_text( ) type gc_error.
+    endtry.
+  endmethod.
+  method create_alv_closed.
+    "Create ALV Table instance
+    try.
+        cl_salv_table=>factory(
+          exporting
+            r_container = gr_bottom_cont
+          importing
+            r_salv_table = gr_alv_closed
+          changing
+            t_table = gt_noti_closed
+        ).
+      catch cx_salv_msg into data(lx_error).
+        message lx_error->get_text( ) type gc_error.
+    endtry.
+  endmethod.
+  method set_alv_toolbar.
+    me->gr_alv_open->get_functions( )->set_all( ).
+    me->gr_alv_release->get_functions( )->set_all( ).
+    me->gr_alv_closed->get_functions( )->set_all( ).
+  endmethod.
+  method set_alv_header.
+    me->gr_alv_open->get_display_settings( )->set_list_header( text-001 ). "Notification open
+    me->gr_alv_release->get_display_settings( )->set_list_header( text-002 ). "Notification release
+    me->gr_alv_closed->get_display_settings( )->set_list_header( text-003 ). "Notification closed
+  endmethod.
+  method set_alv_hotspot.
+    "Set column hotspot
+    try.
+        data(lr_qmnum_col) = cast cl_salv_column_table(
+          ip_alv->get_columns( )->get_column( gc_qmnum ) ).
+        lr_qmnum_col->set_cell_type( if_salv_c_cell_type=>hotspot ).
+
+        data(lr_aufnr_col) = cast cl_salv_column_table(
+          ip_alv->get_columns( )->get_column( gc_aufnr ) ).
+        lr_aufnr_col->set_cell_type( if_salv_c_cell_type=>hotspot ).
+      catch cx_salv_not_found into data(lx_column_error).
+        message lx_column_error->get_text( ) type gc_error.
+    endtry.
+  endmethod.
+  method set_alv_handler.
+    " Register event for each alv
+    data(lr_event) = gr_alv_open->get_event( ).
+    set handler me->on_link_open for lr_event.
+
+    lr_event = gr_alv_release->get_event( ).
+    set handler me->on_link_relase for lr_event.
+
+    lr_event = gr_alv_closed->get_event( ).
+    set handler me->on_link_closed for lr_event.
+  endmethod.
+  method display_alv_noti.
+    "Display alv
+    me->gr_alv_release->display( ).
+    me->gr_alv_open->display( ).
+    me->gr_alv_closed->display( ).
+  endmethod.
+  method on_tree_click.
+    "Combine gt_tree_tplnr and gt_tree_equi to lt_tree_total to read selected line
+    data: lt_tree_total type zpm_tree_tab.
+    append lines of gt_tree_tplnr to lt_tree_total.
+    append lines of gt_tree_equi to lt_tree_total.
+
+    "Read selected row
+    read table lt_tree_total into data(ls_tree) with table key node_key = node_key.
+
+    "Find notification by system status
+    me->select_noti( exporting ip_ls_tree = ls_tree ip_noti_status = gc_noti_open importing ep_lt_noti = gt_noti_open ).
+    me->select_noti( exporting ip_ls_tree = ls_tree ip_noti_status = gc_noti_release importing ep_lt_noti = gt_noti_release ).
+    me->select_noti( exporting ip_ls_tree = ls_tree ip_noti_status = gc_noti_closed importing ep_lt_noti = gt_noti_closed ).
+
+    "Refresh alv notification
+    me->refresh_alv_noti( ).
+  endmethod.
+  method on_link_open.
+    me->on_link_click( ip_column = column ip_row = row ip_table = gt_noti_open ).
+  endmethod.
+  method on_link_relase.
+    me->on_link_click( ip_column = column ip_row = row ip_table = gt_noti_release ).
+  endmethod.
+  method on_link_closed.
+    me->on_link_click( ip_column = column ip_row = row ip_table = gt_noti_closed ).
+  endmethod.
+  method on_link_click.
+    read table ip_table into data(ls_noti) index ip_row.
+    "Open IW23 or IW33 transaction
+    case ip_column.
+      when gc_qmnum.
+        set parameter id: 'IQM' field ls_noti-qmnum.
+        call transaction 'IW23' and skip first screen.
+      when gc_aufnr.
+        set parameter id: 'ANR' field ls_noti-aufnr.
+        call transaction 'IW33' and skip first screen.
+    endcase.
+  endmethod.
+
+  method refresh_alv_noti.
+    me->gr_alv_release->refresh( ).
+    me->gr_alv_open->refresh( ).
+    me->gr_alv_closed->refresh( ).
+  endmethod.
+
+  method select_noti.
+    "Check selected row is fun. location or equipment
+    if ip_ls_tree-equnr eq ''.
+      select * from qmih
+        join iloa on qmih~iloan = iloa~iloan
+        join qmel on qmih~qmnum = qmel~qmnum
+        join jest on qmel~objnr = jest~objnr
+       into corresponding fields of table @ep_lt_noti
+       where iloa~tplnr = @ip_ls_tree-tplnr and
+             jest~stat eq @ip_noti_status and jest~inact = @abap_false
+       order by qmel~erdat, qmel~mzeit.
+    else.
+      select * from qmih
+         join iloa on qmih~iloan = iloa~iloan
+         join qmel on qmih~qmnum = qmel~qmnum
+         join jest on qmel~objnr = jest~objnr
+        into corresponding fields of table @ep_lt_noti
+        where qmih~equnr = @ip_ls_tree-equnr and
+              jest~stat eq @ip_noti_status and jest~inact = @abap_false
+        order by qmel~erdat, qmel~mzeit.
+    endif.
   endmethod.
 endclass.
 
@@ -344,7 +539,7 @@ start-of-selection.
 *----------------------------------------------------------------------*
 module status_0100 output.
   set pf-status 'STATUS_100'.
-  set titlebar 'TITLE_100'. "Notification management
+  set titlebar 'TITLE_100'. "Notification report gui
   lc_gui_screen=>create_screen( ).
 endmodule.
 *&---------------------------------------------------------------------*
