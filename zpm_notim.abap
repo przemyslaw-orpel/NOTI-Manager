@@ -2,7 +2,7 @@
 *& Report  ZPM_NOTIM
 *&
 *&---------------------------------------------------------------------*
-*& Notification managment GUI
+*& Notification report GUI
 *& Author: Przemyslaw Orpel
 *&---------------------------------------------------------------------*
 report zpm_notim.
