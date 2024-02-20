@@ -20,6 +20,7 @@ class lc_gui_screen definition final.
   private section.
     methods:
       create_splitter,
+      create_toolbar,
       set_icon,
       create_tree,
       select_tplnr_data,
@@ -39,21 +40,30 @@ class lc_gui_screen definition final.
       set_alv_header,
       set_alv_hotspot importing ip_alv type ref to cl_salv_table,
       set_alv_handler,
-      select_noti importing ip_ls_tree type zpm_tree ip_noti_status type string exporting ep_lt_noti type zpm_noti_tab,
+      select_noti
+        importing
+                  ip_ls_tree     type zpm_tree
+                  ip_noti_status type string
+                  ip_sdate       type datum optional
+                  ip_edate       type datum optional
+        exporting ep_lt_noti     type zpm_noti_tab,
       display_alv_noti,
       refresh_alv_noti,
+      filtr_noti,
       on_link_click importing ip_column type salv_de_column ip_row type salv_de_row ip_table type zpm_noti_tab,
       on_tree_click for event double_click of cl_salv_events_tree importing node_key,
       on_link_open for event link_click of cl_salv_events_table importing column row,
       on_link_relase for event link_click of cl_salv_events_table importing column row,
-      on_link_closed for event link_click of cl_salv_events_table importing column row.
+      on_link_closed for event link_click of cl_salv_events_table importing column row,
+      on_toolbar_btn for event function_selected of cl_gui_toolbar importing fcode.
 
     constants: gc_noti_open    type string value 'I0068',
                gc_noti_release type string value 'I0070',
                gc_noti_closed  type string value 'I0072',
                gc_qmnum        type lvc_fname value 'QMNUM',
                gc_aufnr        type lvc_fname value 'AUFNR',
-               gc_error        type c length 1 value 'E'.
+               gc_error        type c length 1 value 'E',
+               gc_filtr_noti   type ui_func value 'FILTR_NOTI'.
 
     types:    begin of ty_tplnr_key,
                 tplma    type tplma,
@@ -76,9 +86,11 @@ class lc_gui_screen definition final.
       gr_alv_release   type ref to cl_salv_table,
       gr_alv_open      type ref to cl_salv_table,
       gr_alv_closed    type ref to cl_salv_table,
+      gr_toolbar       type ref to cl_gui_toolbar,
       gt_tree_init     type zpm_tree_tab,
       gt_tree_tplnr    type zpm_tree_tab,
       gt_tree_equi     type zpm_tree_tab,
+      gs_sel_tree      type zpm_tree,
       gt_tplnr_key     type table of  ty_tplnr_key,
       gt_equi_key      type table of  ty_equi_key,
       gt_noti_release  type zpm_noti_tab,
@@ -93,6 +105,7 @@ endclass.
 class lc_gui_screen implementation.
   method constructor.
     me->create_splitter( ).
+    me->create_toolbar( ).
     me->set_icon( ).
     me->create_tree( ).
     me->create_alv_noti( ).
@@ -117,7 +130,7 @@ class lc_gui_screen implementation.
                            rows = 3
                            columns = 1 ).
     " Set containers
-    gr_toolbar_cont = gr_splitter->get_container( row = 1 column = 1  ).
+    gr_toolbar_cont = gr_splitter->get_container( row = 1 column = 2  ).
     gr_tree_cont = gr_splitter->get_container( row = 2 column = 1  ).
     gr_top_cont = gr_noti_splitter->get_container( row = 1 column = 1 ).
     gr_center_cont = gr_noti_splitter->get_container( row = 2 column = 1 ).
@@ -471,12 +484,12 @@ class lc_gui_screen implementation.
     append lines of gt_tree_equi to lt_tree_total.
 
     "Read selected row
-    read table lt_tree_total into data(ls_tree) with table key node_key = node_key.
+    read table lt_tree_total into gs_sel_tree with table key node_key = node_key.
 
     "Find notification by system status
-    me->select_noti( exporting ip_ls_tree = ls_tree ip_noti_status = gc_noti_open importing ep_lt_noti = gt_noti_open ).
-    me->select_noti( exporting ip_ls_tree = ls_tree ip_noti_status = gc_noti_release importing ep_lt_noti = gt_noti_release ).
-    me->select_noti( exporting ip_ls_tree = ls_tree ip_noti_status = gc_noti_closed importing ep_lt_noti = gt_noti_closed ).
+    me->select_noti( exporting ip_ls_tree = gs_sel_tree ip_noti_status = gc_noti_open importing ep_lt_noti = gt_noti_open ).
+    me->select_noti( exporting ip_ls_tree = gs_sel_tree ip_noti_status = gc_noti_release importing ep_lt_noti = gt_noti_release ).
+    me->select_noti( exporting ip_ls_tree = gs_sel_tree ip_noti_status = gc_noti_closed importing ep_lt_noti = gt_noti_closed ).
 
     "Refresh alv notification
     me->refresh_alv_noti( ).
@@ -510,6 +523,13 @@ class lc_gui_screen implementation.
   endmethod.
 
   method select_noti.
+    data: lv_sdate type datum,
+          lv_edate type datum.
+
+    "Default date range last year
+    if ip_sdate is initial or ip_sdate eq ''. lv_sdate  = sy-datum - 365. else. lv_sdate = ip_sdate. endif.
+    if ip_edate is initial or ip_sdate eq ''. lv_edate = sy-datum. else. lv_edate = ip_edate. endif.
+
     "Check selected row is fun. location or equipment
     if ip_ls_tree-equnr eq ''.
       select * from qmih
@@ -518,7 +538,9 @@ class lc_gui_screen implementation.
         join jest on qmel~objnr = jest~objnr
        into corresponding fields of table @ep_lt_noti
        where iloa~tplnr = @ip_ls_tree-tplnr and
-             jest~stat eq @ip_noti_status and jest~inact = @abap_false
+             jest~stat eq @ip_noti_status and
+             jest~inact = @abap_false and
+             qmel~erdat between @lv_sdate and @lv_edate
        order by qmel~erdat, qmel~mzeit.
     else.
       select * from qmih
@@ -527,8 +549,50 @@ class lc_gui_screen implementation.
          join jest on qmel~objnr = jest~objnr
         into corresponding fields of table @ep_lt_noti
         where qmih~equnr = @ip_ls_tree-equnr and
-              jest~stat eq @ip_noti_status and jest~inact = @abap_false
+              jest~stat eq @ip_noti_status and
+              jest~inact = @abap_false and
+              qmel~erdat between @lv_sdate and @lv_edate
         order by qmel~erdat, qmel~mzeit.
+    endif.
+  endmethod.
+  method create_toolbar.
+    constants: lc_nbutton type tb_btype value 0,
+               lc_sbutton type tb_btype value 3.
+
+    data: lt_events type cntl_simple_events.
+    me->gr_toolbar = new #( parent = gr_toolbar_cont ).
+    me->gr_toolbar->add_button( fcode = gc_filtr_noti icon = icon_date butn_type = lc_nbutton text = text-005 quickinfo = text-005 ).
+
+    "Register button click event
+    append value cntl_simple_event( eventid = me->gr_toolbar->m_id_function_selected appl_event = abap_true ) to lt_events.
+    me->gr_toolbar->set_registered_events( events = lt_events ).
+    set handler me->on_toolbar_btn for me->gr_toolbar.
+  endmethod.
+  method on_toolbar_btn.
+    case fcode.
+      when gc_filtr_noti.
+        me->filtr_noti( ).
+    endcase.
+  endmethod.
+  method filtr_noti.
+    data: lv_sdate  type datum,
+          lv_edate  type datum,
+          lv_change type abap_bool.
+
+    "Custom function module to select date
+    call function 'ZSEL_DATE'
+      importing
+        e_sdate  = lv_sdate
+        e_edate  = lv_edate
+        e_change = lv_change.
+
+    "Check user closed calendar
+    if lv_change eq abap_true.
+      "Find notification by system status and create date
+      me->select_noti( exporting ip_ls_tree = gs_sel_tree ip_noti_status = gc_noti_open ip_sdate = lv_sdate ip_edate = lv_edate importing ep_lt_noti = gt_noti_open ).
+      me->select_noti( exporting ip_ls_tree = gs_sel_tree ip_noti_status = gc_noti_release ip_sdate = lv_sdate ip_edate = lv_edate importing ep_lt_noti = gt_noti_release ).
+      me->select_noti( exporting ip_ls_tree = gs_sel_tree ip_noti_status = gc_noti_closed ip_sdate = lv_sdate ip_edate = lv_edate importing ep_lt_noti = gt_noti_closed ).
+      me->refresh_alv_noti( ).
     endif.
   endmethod.
 endclass.

@@ -1,6 +1,6 @@
 # NOTI-Report
 SAP ABAP Report for notification PM. 
-Double click the location tree line displays open/processing/close notifications on the right side of the screen.
+Double click the location tree line displays open/processing/closed notifications on the right side of the screen.
 
 ## Used technology: 
 +  ABAP, OOP, GUI, EVENTS. 
@@ -68,6 +68,7 @@ Double click the location tree line displays open/processing/close notifications
 | 002  | Notification release         | 26      | 52      |
 | 003  | Notification closed            | 23      | 46      |
 | 004  | Fun. location / Equipment     | 30      | 40      |
+| 005  | Notification filtering     | 30      | 40      |
 
 ## Design pattern
 + Singleton
