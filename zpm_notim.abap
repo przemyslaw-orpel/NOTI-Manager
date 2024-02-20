@@ -65,6 +65,7 @@ class lc_gui_screen definition final.
               end of ty_equi_key.
 
     data:
+      gr_toolbar_cont  type ref to cl_gui_container,
       gr_tree_cont     type ref to cl_gui_container,
       gr_top_cont      type ref to cl_gui_container,
       gr_center_cont   type ref to cl_gui_container,
@@ -104,17 +105,20 @@ class lc_gui_screen implementation.
   method create_splitter.
     " Create horizontal splitter instance
     gr_splitter = new #( parent = cl_gui_container=>default_screen
-                         rows = 1
+                         rows = 2
                          columns = 2 ).
     " Set first column width
     gr_splitter->set_column_width( id = 1 width = 30 ).
+    " Set first row height
+    gr_splitter->set_row_height( id = 1 height = 3 ).
 
     " Create vertical splitter instance
-    gr_noti_splitter = new #( parent =   gr_splitter->get_container( row = 1 column = 2 )
+    gr_noti_splitter = new #( parent =   gr_splitter->get_container( row = 2 column = 2 )
                            rows = 3
                            columns = 1 ).
     " Set containers
-    gr_tree_cont = gr_splitter->get_container( row = 1 column = 1  ).
+    gr_toolbar_cont = gr_splitter->get_container( row = 1 column = 1  ).
+    gr_tree_cont = gr_splitter->get_container( row = 2 column = 1  ).
     gr_top_cont = gr_noti_splitter->get_container( row = 1 column = 1 ).
     gr_center_cont = gr_noti_splitter->get_container( row = 2 column = 1 ).
     gr_bottom_cont = gr_noti_splitter->get_container( row = 3 column = 1 ).
